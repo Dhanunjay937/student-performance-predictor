@@ -1,61 +1,104 @@
-# app_streamlit.py
-
 import streamlit as st
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
-from src.preprocessing import run_preprocessing
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import joblib
 
+st.set_page_config(page_title="🎓 Student Performance Predictor", layout="wide")
 
-st.set_page_config(page_title="Student Performance Predictor", layout="centered")
-
+# ------------------------
+# 📌 File Upload
+# ------------------------
 st.title("🎓 Student Performance Predictor")
-st.markdown("Upload a CSV file to analyze student scores and predict performance.")
+uploaded_file = st.file_uploader("📂 Upload Student Dataset (CSV)", type=["csv"])
 
-# Upload CSV
-uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
+if uploaded_file:
+    # Load CSV
+    df = pd.read_csv(uploaded_file)
+    st.write("✅ Data Loaded Successfully!")
+    st.dataframe(df.head())
 
-if uploaded_file is not None:
-    try:
-        # Read and preprocess
-        df_clean = run_preprocessing(uploaded_file)
+    # ------------------------
+    # 📌 Preprocessing
+    # ------------------------
+    st.subheader("🔄 Data Preprocessing")
 
-        st.success("✅ Data loaded and cleaned successfully.")
+    df = df.dropna()
 
-        # Preview data
-        st.subheader("📊 Uploaded Data Preview")
-        st.dataframe(df_clean.head())
+    # Encode categorical variables
+    label_cols = df.select_dtypes(include='object').columns
+    le_dict = {}
+    for col in label_cols:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col])
+        le_dict[col] = le  # Save encoder for later predictions
 
-        # Dataset statistics
-        st.subheader("📈 Dataset Summary")
-        st.write(df_clean.describe())
+    # Add average score column
+    if all(col in df.columns for col in ['math score', 'reading score', 'writing score']):
+        df['average_score'] = df[['math score', 'reading score', 'writing score']].mean(axis=1)
+    else:
+        st.error("❌ Dataset must contain 'math score', 'reading score', and 'writing score' columns.")
+        st.stop()
 
-        # Score distribution
-        st.subheader("🎯 Average Score Distribution")
-        fig, ax = plt.subplots()
-        sns.histplot(df_clean['average_score'], kde=True, ax=ax)
-        st.pyplot(fig)
+    st.write("✅ Data Cleaned & Encoded Successfully!")
+    st.dataframe(df.head())
 
-        # Try your own scores
-        st.subheader("📝 Try Your Own Scores")
-        math = st.slider("Math score", 0, 100, 70)
-        reading = st.slider("Reading score", 0, 100, 70)
-        writing = st.slider("Writing score", 0, 100, 70)
+    # ------------------------
+    # 📌 Model Training
+    # ------------------------
+    st.subheader("🤖 Model Training")
+    X = df.drop(columns=['average_score'])
+    y = df['average_score'].apply(lambda x: 1 if x >= 60 else 0)  # 1 = Pass, 0 = Fail
 
-        avg_score = (math + reading + writing) / 3
-        st.success(f"📘 Predicted Average Score: **{avg_score:.2f}**")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        # Download cleaned data
-        st.download_button(
-            label="💾 Download Cleaned Data",
-            data=df_clean.to_csv(index=False),
-            file_name="cleaned_student_data.csv",
-            mime="text/csv"
-        )
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
 
-        st.info("🔍 Tip: Use the sliders above to simulate new student scores.")
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
 
-    except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
-else:
-    st.warning("📂 Please upload a CSV file to get started.")
+    st.success(f"✅ Model trained successfully! Accuracy: **{accuracy:.2f}**")
+    joblib.dump(model, "model.joblib")
+
+    # ------------------------
+    # 📊 Pie Chart
+    # ------------------------
+    st.subheader("📊 Student Performance Distribution")
+    performance_counts = y.value_counts()
+    labels = ['Good Performance', 'Needs Improvement']
+    sizes = [
+        performance_counts.get(1, 0),
+        performance_counts.get(0, 0)
+    ]
+    colors = ['#4CAF50', '#FF6347']
+
+    fig, ax = plt.subplots()
+    ax.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+    ax.axis('equal')
+    st.pyplot(fig)
+
+    # ------------------------
+    # 📌 Prediction for New Student
+    # ------------------------
+    st.subheader("📝 Predict New Student Performance")
+
+    new_student = {}
+    for col in X.columns:
+        if col in le_dict:  # categorical input
+            options = list(le_dict[col].classes_)
+            choice = st.selectbox(f"{col}", options)
+            new_student[col] = le_dict[col].transform([choice])[0]
+        else:  # numerical input
+            new_student[col] = st.number_input(f"{col}", min_value=0.0, max_value=100.0, value=50.0)
+
+    if st.button("🔍 Predict Performance"):
+        new_df = pd.DataFrame([new_student])
+        prediction = model.predict(new_df)[0]
+        if prediction == 1:
+            st.success("🎉 Predicted: **Good Performance** ✅")
+        else:
+            st.error("⚠️ Predicted: **Needs Improvement** ❌")

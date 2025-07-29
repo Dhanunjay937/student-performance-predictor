@@ -1,8 +1,10 @@
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
-def run_preprocessing(file):
-    df = pd.read_csv(file)
+def run_preprocessing(df):
+    # If df is not already a DataFrame, read it
+    if not isinstance(df, pd.DataFrame):
+        df = pd.read_csv(df)
 
     # Drop missing values
     df = df.dropna()
@@ -17,8 +19,3 @@ def run_preprocessing(file):
     df['average_score'] = df[['math score', 'reading score', 'writing score']].mean(axis=1)
 
     return df
-
-# Debug print
-if __name__ == "__main__":
-    print("✅ Preprocessing module loaded successfully.")
-    print("Available functions:", dir())
